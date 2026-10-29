@@ -1,0 +1,223 @@
+-- =========================================================
+-- ReliefLink PostgreSQL Production Database Schema
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(64) PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  full_name VARCHAR(255) NOT NULL,
+  phone VARCHAR(50),
+  role VARCHAR(32) NOT NULL, -- CITIZEN, VOLUNTEER, GOVERNMENT, ADMIN
+  status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, SUSPENDED
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS citizen_profiles (
+  user_id VARCHAR(64) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  emergency_contact VARCHAR(100),
+  address TEXT,
+  medical_notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS volunteer_profiles (
+  user_id VARCHAR(64) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  skills TEXT,
+  vehicle_type VARCHAR(100),
+  availability_status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE', -- AVAILABLE, BUSY, OFFLINE, ON_BREAK
+  current_latitude DOUBLE PRECISION,
+  current_longitude DOUBLE PRECISION,
+  last_ping_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS government_profiles (
+  user_id VARCHAR(64) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  agency_name VARCHAR(255) NOT NULL,
+  badge_id VARCHAR(100),
+  jurisdiction VARCHAR(255)
+);
+
+CREATE TABLE IF NOT EXISTS relief_centers (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  center_type VARCHAR(64) NOT NULL, -- SHELTER, FOOD, MEDICAL, RESCUE, WATER
+  capacity INTEGER NOT NULL DEFAULT 100,
+  occupancy INTEGER NOT NULL DEFAULT 0,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  contact_phone VARCHAR(50),
+  operating_status VARCHAR(32) NOT NULL DEFAULT 'OPERATIONAL', -- OPERATIONAL, FULL, LIMITED, CLOSED
+  address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS distress_requests (
+  id VARCHAR(64) PRIMARY KEY,
+  request_code VARCHAR(32) UNIQUE NOT NULL,
+  citizen_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  emergency_type VARCHAR(32) NOT NULL, -- FOOD, MEDICAL, SHELTER, RESCUE, WATER, OTHER
+  urgency VARCHAR(32) NOT NULL, -- CRITICAL, HIGH, MEDIUM, LOW
+  affected_count INTEGER NOT NULL DEFAULT 1,
+  description TEXT NOT NULL,
+  landmark VARCHAR(255),
+  contact_phone VARCHAR(50),
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'OPEN', -- OPEN, VERIFIED, CLAIMED, EN_ROUTE, ARRIVED, IN_PROGRESS, RESOLVED, CANCELLED, DUPLICATE, REJECTED, ESCALATED
+  priority VARCHAR(32) NOT NULL DEFAULT 'MEDIUM', -- CRITICAL, HIGH, MEDIUM, LOW
+  duplicate_flag BOOLEAN NOT NULL DEFAULT FALSE,
+  duplicate_of_id VARCHAR(64) REFERENCES distress_requests(id) ON DELETE SET NULL,
+  evidence_url TEXT,
+  assigned_rescue_team VARCHAR(255),
+  assigned_rescue_team_at TIMESTAMPTZ,
+  community_responder_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  community_responder_name VARCHAR(255),
+  community_responder_phone VARCHAR(50),
+  community_responder_status VARCHAR(64),
+  community_responder_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS request_status_histories (
+  id VARCHAR(64) PRIMARY KEY,
+  request_id VARCHAR(64) NOT NULL REFERENCES distress_requests(id) ON DELETE CASCADE,
+  previous_status VARCHAR(32),
+  new_status VARCHAR(32) NOT NULL,
+  changed_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS request_assignments (
+  id VARCHAR(64) PRIMARY KEY,
+  request_id VARCHAR(64) NOT NULL REFERENCES distress_requests(id) ON DELETE CASCADE,
+  volunteer_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL DEFAULT 'ASSIGNED', -- ASSIGNED, EN_ROUTE, ARRIVED, COMPLETED, CANCELLED
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  arrived_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS resources (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(64) NOT NULL, -- FOOD, WATER, MEDICINE, BLANKETS, EMERGENCY_KITS, OTHER
+  total_quantity INTEGER NOT NULL DEFAULT 0,
+  available_quantity INTEGER NOT NULL DEFAULT 0,
+  reserved_quantity INTEGER NOT NULL DEFAULT 0,
+  allocated_quantity INTEGER NOT NULL DEFAULT 0,
+  delivered_quantity INTEGER NOT NULL DEFAULT 0,
+  damaged_quantity INTEGER NOT NULL DEFAULT 0,
+  unit VARCHAR(32) NOT NULL DEFAULT 'units',
+  relief_center_id VARCHAR(64) REFERENCES relief_centers(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS resource_transactions (
+  id VARCHAR(64) PRIMARY KEY,
+  resource_id VARCHAR(64) NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+  type VARCHAR(32) NOT NULL, -- RECEIVED, RESERVED, ALLOCATED, DELIVERED, RETURNED, DAMAGED, EXPIRED, ADJUSTED
+  quantity INTEGER NOT NULL,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  reason TEXT,
+  reference_request_id VARCHAR(64) REFERENCES distress_requests(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS resource_allocations (
+  id VARCHAR(64) PRIMARY KEY,
+  request_id VARCHAR(64) NOT NULL REFERENCES distress_requests(id) ON DELETE CASCADE,
+  resource_id VARCHAR(64) NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+  requested_qty INTEGER NOT NULL,
+  allocated_qty INTEGER NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'ALLOCATED', -- ALLOCATED, PARTIAL, DELIVERED, CANCELLED
+  allocated_by_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS disasters (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  type VARCHAR(64) NOT NULL, -- FLOOD, CYCLONE, EARTHQUAKE, LANDSLIDE, TSUNAMI, FIRE, OTHER
+  severity VARCHAR(32) NOT NULL, -- CRITICAL, SEVERE, MODERATE, MINOR
+  affected_region VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, CONTAINED, RECOVERING, CLOSED
+  start_date TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  end_date TIMESTAMPTZ,
+  description TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS disaster_zones (
+  id VARCHAR(64) PRIMARY KEY,
+  disaster_id VARCHAR(64) REFERENCES disasters(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  zone_type VARCHAR(64) NOT NULL, -- HIGH_RISK, EVACUATION, AFFECTED, SAFE
+  severity VARCHAR(32) NOT NULL, -- CRITICAL, HIGH, MEDIUM, LOW
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  radius_meters DOUBLE PRECISION NOT NULL DEFAULT 1500,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+  target_role VARCHAR(32), -- CITIZEN, VOLUNTEER, GOVERNMENT, ADMIN, or NULL for specific user
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  type VARCHAR(32) NOT NULL DEFAULT 'INFO', -- EMERGENCY, ALERT, STATUS, BROADCAST, INFO
+  read BOOLEAN NOT NULL DEFAULT FALSE,
+  reference_id VARCHAR(64),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id VARCHAR(64) PRIMARY KEY,
+  actor_id VARCHAR(64),
+  actor_email VARCHAR(255),
+  actor_role VARCHAR(32),
+  action VARCHAR(100) NOT NULL,
+  entity VARCHAR(64) NOT NULL,
+  entity_id VARCHAR(64),
+  old_values TEXT,
+  new_values TEXT,
+  reason TEXT,
+  ip_address VARCHAR(100),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emergency_broadcasts (
+  id VARCHAR(64) PRIMARY KEY,
+  sender_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  severity VARCHAR(32) NOT NULL, -- CRITICAL, HIGH, ADVISORY
+  target_audience VARCHAR(32) NOT NULL DEFAULT 'ALL', -- ALL, VOLUNTEERS, CITIZENS, ZONE
+  target_zone VARCHAR(100),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS duplicate_candidates (
+  id VARCHAR(64) PRIMARY KEY,
+  request_id VARCHAR(64) NOT NULL REFERENCES distress_requests(id) ON DELETE CASCADE,
+  candidate_id VARCHAR(64) NOT NULL REFERENCES distress_requests(id) ON DELETE CASCADE,
+  confidence_score DOUBLE PRECISION NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING_REVIEW', -- PENDING_REVIEW, CONFIRMED_DUPLICATE, REJECTED
+  reviewed_by_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance and quick spatial / status lookups
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_requests_status ON distress_requests(status);
+CREATE INDEX IF NOT EXISTS idx_requests_priority ON distress_requests(priority);
+CREATE INDEX IF NOT EXISTS idx_requests_citizen ON distress_requests(citizen_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_volunteer ON request_assignments(volunteer_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);

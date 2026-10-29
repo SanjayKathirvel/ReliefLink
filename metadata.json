@@ -1,0 +1,10 @@
+{
+  "name": "ReliefLink",
+  "description": "Production-grade, real-time disaster relief coordination platform for India connecting citizens, volunteers, government command (NDRF/SDMA), and administrators with live tactical mapping and distress tracking.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
