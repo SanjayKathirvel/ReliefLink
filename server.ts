@@ -187,13 +187,22 @@ app.get([
   return res.status(404).send('Project report PDF not found');
 });
 
+// Serve static assets from public/ directory
+app.use(express.static(path.resolve(process.cwd(), 'public')));
+
 // Configure Vite Dev Server or Production Static Files
 async function setupFrontend() {
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(process.cwd(), 'dist'))) {
+  const distDir = path.resolve(process.cwd(), 'dist');
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd && fs.existsSync(path.join(distDir, 'index.html'))) {
     console.log('[ReliefLink Frontend] Serving production build from /dist');
-    app.use(express.static(path.resolve(process.cwd(), 'dist')));
-    app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
+    app.use(express.static(distDir));
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/socket.io')) {
+        return next();
+      }
+      res.sendFile(path.join(distDir, 'index.html'));
     });
   } else {
     console.log('[ReliefLink Frontend] Attaching Vite development middleware (HMR/SPA)...');
@@ -208,6 +217,21 @@ async function setupFrontend() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // SPA catch-all fallback: transforms and serves index.html for all client-side routes
+    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/socket.io')) {
+        return next();
+      }
+      try {
+        const indexPath = path.resolve(process.cwd(), 'index.html');
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (err) {
+        next(err);
+      }
+    });
   }
 }
 
